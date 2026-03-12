@@ -1,10 +1,12 @@
 import { Server } from “@modelcontextprotocol/sdk/server/index.js”;
-import { StdioServerTransport } from “@modelcontextprotocol/sdk/server/stdio.js”;
+import { SSEServerTransport } from “@modelcontextprotocol/sdk/server/sse.js”;
 import { createClient } from ‘@supabase/supabase-js’;
+import express from ‘express’;
 
 // 从环境变量获取Supabase配置
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
+const PORT = process.env.PORT || 3000;
 
 if (!supabaseUrl || !supabaseKey) {
 console.error(‘请设置 SUPABASE_URL 和 SUPABASE_KEY 环境变量’);
@@ -13,7 +15,14 @@ process.exit(1);
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 创建MCP服务器
+// 创建Express应用
+const app = express();
+
+// 启动服务器
+app.get(’/sse’, async (req, res) => {
+console.log(‘收到SSE连接请求’);
+
+const transport = new SSEServerTransport(’/message’, res);
 const server = new Server(
 {
 name: “memory-server”,
@@ -26,7 +35,7 @@ tools: {},
 }
 );
 
-// 工具1：保存记忆
+// 工具列表
 server.setRequestHandler(“tools/list”, async () => {
 return {
 tools: [
@@ -96,109 +105,122 @@ description: “返回结果数量，默认20”
 server.setRequestHandler(“tools/call”, async (request) => {
 const { name, arguments: args } = request.params;
 
+```
 try {
-switch (name) {
-case “save_memory”: {
-const { content, tags = [] } = args;
-const { data, error } = await supabase
-.from(‘memories’)
-.insert({
-content,
-tags,
-created_at: new Date().toISOString()
-})
-.select();
+  switch (name) {
+    case "save_memory": {
+      const { content, tags = [] } = args;
+      const { data, error } = await supabase
+        .from('memories')
+        .insert({
+          content,
+          tags,
+          created_at: new Date().toISOString()
+        })
+        .select();
 
-```
-    if (error) throw error;
+      if (error) throw error;
 
-    return {
-      content: [{
-        type: "text",
-        text: `记忆已保存！ID: ${data[0].id}`
-      }]
-    };
+      return {
+        content: [{
+          type: "text",
+          text: `记忆已保存！ID: ${data[0].id}`
+        }]
+      };
+    }
+
+    case "search_memory": {
+      const { query, limit = 10 } = args;
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .ilike('content', `%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      const results = data.map(m => 
+        `[${m.created_at}] ${m.content}${m.tags?.length ? ` (标签: ${m.tags.join(', ')})` : ''}`
+      ).join('\n\n');
+
+      return {
+        content: [{
+          type: "text",
+          text: results || "没有找到相关记忆"
+        }]
+      };
+    }
+
+    case "get_time": {
+      const now = new Date();
+      return {
+        content: [{
+          type: "text",
+          text: `当前时间：${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\nISO格式：${now.toISOString()}`
+        }]
+      };
+    }
+
+    case "list_recent_memories": {
+      const { limit = 20 } = args;
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      const results = data.map(m => 
+        `[${m.created_at}] ${m.content}${m.tags?.length ? ` (标签: ${m.tags.join(', ')})` : ''}`
+      ).join('\n\n');
+
+      return {
+        content: [{
+          type: "text",
+          text: results || "暂无记忆"
+        }]
+      };
+    }
+
+    default:
+      throw new Error(`未知工具: ${name}`);
   }
-
-  case "search_memory": {
-    const { query, limit = 10 } = args;
-    const { data, error } = await supabase
-      .from('memories')
-      .select('*')
-      .ilike('content', `%${query}%`)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-
-    const results = data.map(m => 
-      `[${m.created_at}] ${m.content}${m.tags?.length ? ` (标签: ${m.tags.join(', ')})` : ''}`
-    ).join('\n\n');
-
-    return {
-      content: [{
-        type: "text",
-        text: results || "没有找到相关记忆"
-      }]
-    };
-  }
-
-  case "get_time": {
-    const now = new Date();
-    return {
-      content: [{
-        type: "text",
-        text: `当前时间：${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\nISO格式：${now.toISOString()}`
-      }]
-    };
-  }
-
-  case "list_recent_memories": {
-    const { limit = 20 } = args;
-    const { data, error } = await supabase
-      .from('memories')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-
-    const results = data.map(m => 
-      `[${m.created_at}] ${m.content}${m.tags?.length ? ` (标签: ${m.tags.join(', ')})` : ''}`
-    ).join('\n\n');
-
-    return {
-      content: [{
-        type: "text",
-        text: results || "暂无记忆"
-      }]
-    };
-  }
-
-  default:
-    throw new Error(`未知工具: ${name}`);
-}
-```
-
 } catch (error) {
-return {
-content: [{
-type: “text”,
-text: `错误: ${error.message}`
-}],
-isError: true
-};
+  return {
+    content: [{
+      type: "text",
+      text: `错误: ${error.message}`
+    }],
+    isError: true
+  };
 }
+```
+
 });
 
-// 启动服务器
-async function main() {
-const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(“MCP记忆服务器已启动”);
-}
+console.log(‘MCP服务器已连接’);
+});
 
-main().catch((error) => {
-console.error(“服务器启动失败:”, error);
-process.exit(1);
+app.post(’/message’, express.json(), async (req, res) => {
+// SSE消息处理
+res.status(200).end();
+});
+
+// 健康检查
+app.get(’/’, (req, res) => {
+res.json({
+status: ‘ok’,
+message: ‘MCP记忆服务器运行中’,
+endpoints: {
+sse: ‘/sse’,
+message: ‘/message’
+}
+});
+});
+
+app.listen(PORT, () => {
+console.log(`MCP记忆服务器启动成功，端口 ${PORT}`);
 });
