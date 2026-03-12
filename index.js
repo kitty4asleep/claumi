@@ -1,28 +1,24 @@
 import { Server } from “@modelcontextprotocol/sdk/server/index.js”;
 import { SSEServerTransport } from “@modelcontextprotocol/sdk/server/sse.js”;
-import { createClient } from ‘@supabase/supabase-js’;
-import express from ‘express’;
+import { createClient } from “@supabase/supabase-js”;
+import express from “express”;
 
-// 从环境变量获取Supabase配置
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const PORT = process.env.PORT || 3000;
 
 if (!supabaseUrl || !supabaseKey) {
-console.error(‘请设置 SUPABASE_URL 和 SUPABASE_KEY 环境变量’);
+console.error(“Please set SUPABASE_URL and SUPABASE_KEY”);
 process.exit(1);
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
-
-// 创建Express应用
 const app = express();
 
-// 启动服务器
-app.get(’/sse’, async (req, res) => {
-console.log(‘收到SSE连接请求’);
+app.get(”/sse”, async (req, res) => {
+console.log(“SSE connection request received”);
 
-const transport = new SSEServerTransport(’/message’, res);
+const transport = new SSEServerTransport(”/message”, res);
 const server = new Server(
 {
 name: “memory-server”,
@@ -35,24 +31,23 @@ tools: {},
 }
 );
 
-// 工具列表
 server.setRequestHandler(“tools/list”, async () => {
 return {
 tools: [
 {
 name: “save_memory”,
-description: “保存一条记忆到数据库”,
+description: “Save a memory to database”,
 inputSchema: {
 type: “object”,
 properties: {
 content: {
 type: “string”,
-description: “要保存的记忆内容”
+description: “Memory content”
 },
 tags: {
 type: “array”,
 items: { type: “string” },
-description: “记忆标签（可选）”
+description: “Memory tags”
 }
 },
 required: [“content”]
@@ -60,17 +55,17 @@ required: [“content”]
 },
 {
 name: “search_memory”,
-description: “搜索记忆”,
+description: “Search memories”,
 inputSchema: {
 type: “object”,
 properties: {
 query: {
 type: “string”,
-description: “搜索关键词”
+description: “Search query”
 },
 limit: {
 type: “number”,
-description: “返回结果数量，默认10”
+description: “Result limit”
 }
 },
 required: [“query”]
@@ -78,7 +73,7 @@ required: [“query”]
 },
 {
 name: “get_time”,
-description: “获取当前时间”,
+description: “Get current time”,
 inputSchema: {
 type: “object”,
 properties: {}
@@ -86,13 +81,13 @@ properties: {}
 },
 {
 name: “list_recent_memories”,
-description: “列出最近的记忆”,
+description: “List recent memories”,
 inputSchema: {
 type: “object”,
 properties: {
 limit: {
 type: “number”,
-description: “返回结果数量，默认20”
+description: “Result limit”
 }
 }
 }
@@ -101,7 +96,6 @@ description: “返回结果数量，默认20”
 };
 });
 
-// 工具执行
 server.setRequestHandler(“tools/call”, async (request) => {
 const { name, arguments: args } = request.params;
 
@@ -111,7 +105,7 @@ try {
     case "save_memory": {
       const { content, tags = [] } = args;
       const { data, error } = await supabase
-        .from('memories')
+        .from("memories")
         .insert({
           content,
           tags,
@@ -124,7 +118,7 @@ try {
       return {
         content: [{
           type: "text",
-          text: `记忆已保存！ID: ${data[0].id}`
+          text: `Memory saved! ID: ${data[0].id}`
         }]
       };
     }
@@ -132,22 +126,22 @@ try {
     case "search_memory": {
       const { query, limit = 10 } = args;
       const { data, error } = await supabase
-        .from('memories')
-        .select('*')
-        .ilike('content', `%${query}%`)
-        .order('created_at', { ascending: false })
+        .from("memories")
+        .select("*")
+        .ilike("content", `%${query}%`)
+        .order("created_at", { ascending: false })
         .limit(limit);
 
       if (error) throw error;
 
       const results = data.map(m => 
-        `[${m.created_at}] ${m.content}${m.tags?.length ? ` (标签: ${m.tags.join(', ')})` : ''}`
-      ).join('\n\n');
+        `[${m.created_at}] ${m.content}${m.tags?.length ? ` (tags: ${m.tags.join(", ")})` : ""}`
+      ).join("\n\n");
 
       return {
         content: [{
           type: "text",
-          text: results || "没有找到相关记忆"
+          text: results || "No memories found"
         }]
       };
     }
@@ -157,7 +151,7 @@ try {
       return {
         content: [{
           type: "text",
-          text: `当前时间：${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\nISO格式：${now.toISOString()}`
+          text: `Current time: ${now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}\nISO: ${now.toISOString()}`
         }]
       };
     }
@@ -165,33 +159,33 @@ try {
     case "list_recent_memories": {
       const { limit = 20 } = args;
       const { data, error } = await supabase
-        .from('memories')
-        .select('*')
-        .order('created_at', { ascending: false })
+        .from("memories")
+        .select("*")
+        .order("created_at", { ascending: false })
         .limit(limit);
 
       if (error) throw error;
 
       const results = data.map(m => 
-        `[${m.created_at}] ${m.content}${m.tags?.length ? ` (标签: ${m.tags.join(', ')})` : ''}`
-      ).join('\n\n');
+        `[${m.created_at}] ${m.content}${m.tags?.length ? ` (tags: ${m.tags.join(", ")})` : ""}`
+      ).join("\n\n");
 
       return {
         content: [{
           type: "text",
-          text: results || "暂无记忆"
+          text: results || "No memories yet"
         }]
       };
     }
 
     default:
-      throw new Error(`未知工具: ${name}`);
+      throw new Error(`Unknown tool: ${name}`);
   }
 } catch (error) {
   return {
     content: [{
       type: "text",
-      text: `错误: ${error.message}`
+      text: `Error: ${error.message}`
     }],
     isError: true
   };
@@ -201,26 +195,24 @@ try {
 });
 
 await server.connect(transport);
-console.log(‘MCP服务器已连接’);
+console.log(“MCP server connected”);
 });
 
-app.post(’/message’, express.json(), async (req, res) => {
-// SSE消息处理
+app.post(”/message”, express.json(), async (req, res) => {
 res.status(200).end();
 });
 
-// 健康检查
-app.get(’/’, (req, res) => {
+app.get(”/”, (req, res) => {
 res.json({
-status: ‘ok’,
-message: ‘MCP记忆服务器运行中’,
+status: “ok”,
+message: “MCP memory server is running”,
 endpoints: {
-sse: ‘/sse’,
-message: ‘/message’
+sse: “/sse”,
+message: “/message”
 }
 });
 });
 
 app.listen(PORT, () => {
-console.log(`MCP记忆服务器启动成功，端口 ${PORT}`);
+console.log(`MCP memory server started on port ${PORT}`);
 });
